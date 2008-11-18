@@ -1,0 +1,6 @@
+; $Id$
+name = Vat number
+description = Ask for vat number for a specified role.
+dependencies[] = uc_cart
+package = Ubercart - extra
+core = 6.x

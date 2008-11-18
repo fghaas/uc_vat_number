@@ -1,0 +1,35 @@
+<?php
+// $Id$
+/**
+ * Implementation of hook_install().
+ **/
+function uc_vat_number_install() {
+  drupal_install_schema('uc_vat_number');
+}
+
+/**
+ * Implementation of hook_schema().
+ **/
+function uc_vat_number_schema() {
+  $schema['uc_vat_number'] = array(
+    'fields' => array(
+      'vat_number_id' => array('type' => 'serial', 'not null' => TRUE),
+      'order_id' => array('type' => 'int', 'not null' => TRUE),
+      'vat_number' => array('type' => 'varchar', 'length' => 32, 'not null' => TRUE),
+    ),
+    'primary key' => array('vat_number_id'),
+  );
+  return $schema;
+}
+
+/**
+ * Implementation of hook_uninstall().
+ **/
+function uc_vat_number_uninstall() {
+  db_query("DROP TABLE IF EXISTS {uc_vat_numbers}");
+  variable_del('uc_store_vat_number');
+  variable_del('uc_pane_vat_number_enabled');
+  variable_del('uc_pane_vat_number_weight');
+  variable_del('uc_order_pane_vat_number_show_view');
+  variable_del('uc_order_pane_vat_number_weight_view');
+}
