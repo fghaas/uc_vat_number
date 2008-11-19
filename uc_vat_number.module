@@ -120,14 +120,12 @@ function uc_vat_number_order($op, &$arg1) {
  */
 function uc_vat_number_token_values($type, $object = NULL) {
   switch ($type) {
-    case 'global':
+    case 'order':
 			$values['store-vat-number'] = variable_get('uc_store_vat_number', t('Your store VAT number'));
-			break;
-
-    case 'uc_order':
+    
 			if (user_access('Have to fill VAT number')) {
       	$order = $object;
-				$values['order-vat-number'] = $order->vat_number['source'];
+				$values['order-vat-number'] = $order->data['vat_number'];
 			}
 		break;
 
@@ -139,9 +137,9 @@ function uc_vat_number_token_values($type, $object = NULL) {
  * Implementation of hook_token_list(). (token.module)
  */
 function uc_vat_number_token_list($type = 'all') {
-  $tokens['global']['store-vat-number'] = t('Your store VAT number.');
-	if ($type == 'uc_order' || $type == 'ubercart' || $type == 'all') {
-		$tokens['uc_order']['order-vat-number'] = t('The VAT number of the customer.');
+	if ($type == 'ubercart') {
+	  $tokens['order']['store-vat-number'] = t('Your store VAT number.');
+		$tokens['order']['order-vat-number'] = t('The VAT number of the customer.');
 	}
   return $tokens;
 }
