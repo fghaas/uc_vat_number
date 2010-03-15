@@ -300,11 +300,11 @@ function uc_vat_number_validate_vat($vat_number) {
   global $user;
 
   $vat_number = preg_replace('/[ .]/', '', $vat_number);
-  $countryCode = substr($vat_number, 0, 2);
-  $vatNumber = substr($vat_number, 2);
+  $countryCode = strtoupper(substr($vat_number, 0, 2));
+  $vatNumber = strtoupper(substr($vat_number, 2));
 
-  if(strlen($countryCode) != 2 or is_numeric(substr($countryCode, 0, 1)) or is_numeric(substr($countryCode, 1, 2)) or !is_numeric($vatNumber)) {
-    form_set_error('panes][vat_number][vat_number', t('Your VAT Number syntax is not correct. You should have something like that : BE 0123.456.789'));
+  if(!preg_match('/^[A-Z]{2}$/', $countryCode) or !preg_match('/^[0-9A-Z+*]+$/', $vatNumber)) {
+    form_set_error('panes][vat_number][vat_number', t('Your VAT Number syntax is not correct. You should have something like: BE 0123.456.789'));
     return;
   }
 
