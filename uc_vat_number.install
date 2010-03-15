@@ -19,6 +19,15 @@ function uc_vat_number_schema() {
     ),
     'primary key' => array('vat_number_id'),
   );
+  $schema['uc_vat_validation'] = array(
+    'fields' => array(
+      'vat_validation_id' => array('type' => 'serial', 'not null' => TRUE),
+      'vat_number' => array('type' => 'varchar', 'length' => 32, 'not null' => TRUE),
+      'fetched' => array('type' => 'int', 'not null' => TRUE),
+      'response' => array('type' => 'text', 'not null' => TRUE),
+    ),
+    'primary key' => array('vat_validation_id'),
+  );
   return $schema;
 }
 
@@ -32,4 +41,22 @@ function uc_vat_number_uninstall() {
   variable_del('uc_pane_vat_number_weight');
   variable_del('uc_order_pane_vat_number_show_view');
   variable_del('uc_order_pane_vat_number_weight_view');
+}
+
+
+
+function uc_vat_number_update_2() {
+  $schema['uc_vat_validation'] = array(
+    'fields' => array(
+      'vat_validation_id' => array('type' => 'serial', 'not null' => TRUE),
+      'vat_number' => array('type' => 'varchar', 'length' => 32, 'not null' => TRUE),
+      'fetched' => array('type' => 'int', 'not null' => TRUE),
+      'response' => array('type' => 'text', 'not null' => TRUE),
+    ),
+    'primary key' => array('vat_validation_id'),
+  );
+
+  $ret = array();
+  db_create_table($ret, 'uc_vat_validation', $schema['uc_vat_validation']);
+  return $ret;
 }

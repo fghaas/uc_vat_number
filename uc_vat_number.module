@@ -4,9 +4,7 @@
 /**
  * @file
  * Defines a checkout pane that lets customers specify their VAT number
- * This is required for store that sell to professionnal in European Union
- *
- * You can choose for which role you want to show this field.
+ * This is required for stores that sell to professionals in the European Union
  *
  */
 
@@ -15,12 +13,14 @@
  * Hook Functions
  ******************************************************************************/
 
+
 /**
  * Implementation of hook_perm()
  */
 function uc_vat_number_perm() {
   return array('Have to fill VAT number');
 }
+
 
 /**
  * Implementation of hook_form_alter()
@@ -47,100 +47,229 @@ function uc_vat_number_form_alter(&$form, $form_state, $form_id) {
     $form['uc_notify_store_help_page']['#weight'] = 9;
     $form['buttons']['#weight'] = 10;
   }
-  // Alter the checkout form to ask for the Customer VAT number
+
+  // Alter the checkout form to check the Customer VAT number
   if($form_id == 'uc_cart_checkout_form') {
-    global $user;
-    if(!user_access('Have to fill VAT number')) {
-      return;
-    }
-    if(is_numeric($_SESSION['cart_order'])) {
-      $order_data = db_result(db_query('SELECT data FROM {uc_orders} WHERE order_id = %d', $_SESSION['cart_order']));
-      $order_data = unserialize($order_data);
-    }
-
-    drupal_add_js(drupal_get_path('module', 'uc_vat_number') .'/uc_vat_number.js');
-    // Trigger a fake change action to force VAT Number refresh
-    drupal_add_js('$(document).ready(function() { $("#edit-panes-billing-billing-country").change(); });', 'inline');
-
-    $form['panes']['billing']['billing_company']['#required'] = true;
+    //$form['panes']['billing']['billing_company']['#required'] = true;
     $form['#validate'][] = 'uc_vat_number_checkout_validate';
-
-    $form['panes']['billing']['billing_vat_number'] = array(
-      '#type' => 'textfield',
-      '#title' => t('VAT Number'),
-      '#description' => t('Required for professionnal customers in EU (eg: FR0123456789).'),
-      '#size' => 32,
-      '#maxlength' => 32,
-      '#weight' => 1,
-      '#required' => false,
-      '#default_value' => $order_data['vat_number'],
-    );
   }
 }
 
+
 /**
- * Implementation of hook_checkout_pane
+ * Implementation of hook_order_pane()
  */
-function uc_vat_number_checkout_pane() {
+function uc_vat_number_order_pane() {
+  // Add a pane to the order edit/view pages with VAT numbers
   $panes[] = array(
     'id' => 'vat_number',
+    'callback' => 'uc_vat_number_order_pane_vat_number',
     'title' => t('VAT Number'),
-    'desc' => t('VAT Number'),
-    'callback' => 'uc_checkout_pane_vat_number',
+    'desc' => t('Show store and customer VAT numbers.'),
+    'class' => 'pos-left',
     'weight' => 3,
+    'show' => array('view', 'customer', 'edit'),
   );
   return $panes;
 }
 
+
 /**
- * Implementation of hook_order().
+ * VAT number order pane callback
  */
+function uc_vat_number_order_pane_vat_number($op, $arg1) {
+  switch ($op) {
+
+    case 'view':
+    case 'customer':
+      return $arg1->data["vat_number"];
+
+    case 'edit-form':
+      $form['vat_number'] = array(
+        '#type' => 'fieldset',
+        '#title' => t("Customer VAT Number"),
+        '#collapsible' => FALSE,
+        '#collapsed' => FALSE,
+      );
+      $form['vat_number']['vat_number'] = uc_textfield(t("Customer VAT Number"), $arg1->data['vat_number'], FALSE);
+      return $form;
+
+    case 'edit-theme':
+      $output = '<div id="vat_number_select"></div><table class="order-edit-table">';
+      foreach (element_children($arg1['vat_number']) as $field) {
+        $title = $arg1['vat_number'][$field]['#title'];
+        $arg1['vat_number'][$field]['#title'] = NULL;
+        $output .= '<tr><td class="oet-label">'. $title .':</td><td>'
+                 . drupal_render($arg1['vat_number'][$field]) .'</td></tr>';
+      }
+      $output .= '</table>';
+      return $output;
+
+    case 'edit-process':
+      $data = db_result(db_query("SELECT data FROM {uc_orders} WHERE order_id = %d", $arg1['orderid']));
+      $data = unserialize($data);
+      if ($arg1['vat_number'] != $data['vat_number'])
+        $changes['vat_number'] = $arg1['vat_number'];
+      return $changes;
+  }
+}
+
+
+/**
+ * Implementation of hook_checkout_pane().
+ */
+function uc_vat_number_checkout_pane()
+{
+  $panes[] = array(
+    "id" => "vat_number",
+    "callback" => "uc_vat_number_checkout_pane_vat",
+    'process' => TRUE,
+    "title" => t("VAT Number"),
+    "weight" => 3,
+  );
+  return $panes;
+}
+
+
+/**
+ * VAT number checkout pane callback
+ *
+ * More information at http://www.ubercart.org/docs/developer/245/checkout
+ */
+function uc_vat_number_checkout_pane_vat($op, &$arg1, $arg2)
+{
+  global $user;
+
+  $order = $arg1;
+
+  switch ($op)
+  {
+    case "view":
+      // Add form to checkout pane
+
+      $description = t("Enter your VAT number if applicable.");
+
+      drupal_add_js(drupal_get_path('module', 'uc_vat_number') .'/uc_vat_number.js');
+      drupal_add_js('var european_countries = [' . implode(',', uc_vat_number_european_countries()) . '];', 'inline');
+      // force VAT Number refresh
+      drupal_add_js('$(document).ready(function() { updateVatField(); });', 'inline');
+
+      $content['vat_number'] = array(
+        '#type' => 'textfield',
+        '#title' => t('VAT Number'),
+        '#description' => t('Required for professional customers in EU (eg: BE 0123.456.789).'),
+        '#size' => 32,
+        '#maxlength' => 32,
+        '#weight' => 1,
+        '#required' => user_access('Have to fill VAT number') ? TRUE : FALSE,
+        '#default_value' => $order->data['vat_number'],
+        '#autocomplete_path' => 'uc_vat_number/vat_autocomplete',
+      );
+
+      return array("description" => $description, "contents" => $content);
+
+    case "process":
+      // Save VAT number from checkout pane
+
+      $order->data['vat_number'] = $arg2['vat_number'];
+      break;
+
+    case "review":
+      // Show VAT number on checkout review
+
+      if ($order->data['vat_number']) {
+        $review[] = array('title' => t('Your VAT Number'), 'data' => $arg1->data['vat_number']);
+        $review[] = array('title' => t('Our VAT Number'), 'data' => variable_get('uc_store_vat_number', ''));
+      }
+      return $review;
+
+  }
+}
+
+
+function uc_vat_number_menu()
+{
+  $items['uc_vat_number/vat_autocomplete'] = array(
+    'title' => t('VAT number autocomplete callback'),
+    'page callback' => 'uc_vat_number_vat_autocomplete',
+    'access arguments' => array('access content'),
+    'type' => MENU_CALLBACK,
+  );
+  return $items;
+}
+
+
+function uc_vat_number_vat_autocomplete($string) {
+  global $user;
+  $matches = array();
+  if ($user->uid && $result = db_query("SELECT data FROM {uc_orders} WHERE uid = %d", $user->uid)) {
+    while ($data = db_fetch_array($result)) {
+      $data = unserialize($data['data']);
+      if ($data['vat_number'])
+        $matches[check_plain($data['vat_number'])] = check_plain($data['vat_number']);
+    }
+  }
+  ksort($matches);
+
+  drupal_json($matches);
+}
+
+
+
+/**
+* Implementation of hook_order().
+*/
 function uc_vat_number_order($op, &$arg1) {
   switch ($op) {
     case 'save':
-      // Load up the existing data array.
-      if(empty($_POST['panes']['billing']['billing_vat_number'])) {
+      if (!isset($arg1->vat_number))
         break;
-      }
 
+      // Save our VAT number set by hook_order_pane('edit-process')
+      // The order was already saved, so don't just update $order->data now but do the DB query ourselves
+
+      // Load up the existing data array.
       $data = db_result(db_query("SELECT data FROM {uc_orders} WHERE order_id = %d", $arg1->order_id));
       $data = unserialize($data);
 
       // Add the custom data into the data array
-      $data['vat_number'] = $_POST['panes']['billing']['billing_vat_number'];
+      $data['vat_number'] = $arg1->vat_number;
 
       // Save it again.
       db_query("UPDATE {uc_orders} SET data = '%s' WHERE order_id = %d", serialize($data), $arg1->order_id);
+
       break;
   }
 }
+
 
 /**
  * Implementation of hook_token_values(). (token.module)
  */
 function uc_vat_number_token_values($type, $object = NULL) {
   switch ($type) {
-    case 'order':
-			$values['store-vat-number'] = variable_get('uc_store_vat_number', t('Your store VAT number'));
-    
-			if (user_access('Have to fill VAT number')) {
-      	$order = $object;
-				$values['order-vat-number'] = $order->data['vat_number'];
-			}
-		break;
+    case 'global':
+      $values['store-vat-number'] = variable_get('uc_store_vat_number', t('Your store VAT number'));
+      break;
 
-	}
+    case 'order':
+      $order = $object;
+      $values['order-vat-number'] = $order->data['vat_number'];
+      break;
+
+  }
   return $values;
 }
+
 
 /**
  * Implementation of hook_token_list(). (token.module)
  */
 function uc_vat_number_token_list($type = 'all') {
-	if ($type == 'ubercart') {
-	  $tokens['order']['store-vat-number'] = t('Your store VAT number.');
-		$tokens['order']['order-vat-number'] = t('The VAT number of the customer.');
-	}
+  $tokens['global']['store-vat-number'] = t('Your store VAT number.');
+  if ($type == 'order' || $type == 'ubercart' || $type == 'all') {
+    $tokens['order']['order-vat-number'] = t('The VAT number of the customer.');
+  }
   return $tokens;
 }
 
@@ -149,67 +278,237 @@ function uc_vat_number_token_list($type = 'all') {
  * Callback Functions, Forms, and Tables
  ******************************************************************************/
 
-/**
- * Checkout pane callback.
- */
-function uc_checkout_pane_vat_number($op, &$arg1, $arg2) {
-  switch($op) {
-    case 'review':
-      $review[] = array('title' => t('VAT Number'), 'data' => $arg1->data['vat_number']);
-      return $review;
+function uc_vat_number_checkout_validate($form, $form_state) {
+  // Skip validation if the customer is not in EU country.
+  if (!in_array($form_state['values']['panes']['billing']['billing_country'], uc_vat_number_european_countries())) {
+    return;
+  }
+
+  if (empty($form_state['values']['panes']['vat_number']['vat_number']))
+    if (user_access('Have to fill VAT number'))
+      form_set_error('panes][billing][vat_number', t('VAT Number field is required.'));
+    else
+      return;
+
+  if(variable_get('uc_store_vat_number_soap', true) == true) {
+    uc_vat_number_validate_vat($form_state['values']['panes']['vat_number']['vat_number']);
   }
 }
 
-function uc_vat_number_checkout_validate($form, $form_state) {
-/*List of European countries (in order of the array)
-	Allemagne
-	Autriche
-	Belgique
-	Danemark
-	Espagne
-	Finlande
-	France
-	Grce
-	Irlande
-	Italie
-	Luxembourg
-	Pays-Bas
-	Portugal
-	Royaume-Uni
-	Sude
-	Chypre
-	Estonie
-	Hongrie
-	Lettonie
-	Lituanie
-	Malte
-	Pologne
-	Rpublique tchque
-	Slovaquie
-	Slovnie*/
-	// Skip validation if the customer is not in EU country.
-  $european_countries = array(276, 040, 056, 208, 724, 246, 250, 300, 372, 380, 442, 528, 620, 826, 752, 196, 233, 348, 428, 440, 470, 616, 203, 703, 705);
-  if(!in_array($form_state['values']['panes']['billing']['billing_country'], $european_countries)) {
-   return;
-  }
-  if(empty($form_state['values']['panes']['billing']['billing_vat_number'])) {
-    form_set_error('panes][billing][billing_vat_number', t('VAT Number field is required.'));
+
+function uc_vat_number_validate_vat($vat_number) {
+  global $user;
+
+  $vat_number = preg_replace('/[ .]/', '', $vat_number);
+  $countryCode = substr($vat_number, 0, 2);
+  $vatNumber = substr($vat_number, 2);
+
+  if(strlen($countryCode) != 2 or is_numeric(substr($countryCode, 0, 1)) or is_numeric(substr($countryCode, 1, 2)) or !is_numeric($vatNumber)) {
+    form_set_error('panes][vat_number][vat_number', t('Your VAT Number syntax is not correct. You should have something like that : BE 0123.456.789'));
+    return;
   }
 
-  if(variable_get('uc_store_vat_number_soap', true) == true) {
-    $vat_number = str_replace(' ', '', $form_state['values']['panes']['billing']['billing_vat_number']);
-    $countryCode = substr($vat_number, 0, 2);
-    $vatNumber = substr($vat_number, 2);
+  if (db_result(db_query(
+    "SELECT vat_validation_id FROM {uc_vat_validation} WHERE vat_number = '%s' AND fetched > UNIX_TIMESTAMP(NOW()) - 86400",
+    array("{$countryCode}{$vatNumber}")
+  ))) {
+    /* number is in the cache, which means it was valid (we only store valid numbers).
+       no need to check, can't set error, just return */
+    return;
+  }
 
-    if(strlen($countryCode) != 2 or is_numeric(substr($countryCode, 0, 1)) or is_numeric(substr($countryCode, 1, 2)) or !is_numeric($vatNumber)) {
-      form_set_error('panes][billing][billing_vat_number', t('Your VAT Number syntax is not correct. You should have something like that : FR0123456789'));
-      return;
-    }
-    $client = new SoapClient("http://ec.europa.eu/taxation_customs/vies/api/checkVatPort?wsdl");
+  $client = soapclient_init_client("http://ec.europa.eu/taxation_customs/vies/services/checkVatService.wsdl", TRUE);
+  if ($client['#error']) {
+    if ($user->uid == 1)
+      drupal_set_message(t('Error when contacting the VAT Number verification service: @error', array('@error' => $client['#error'])));
+    watchdog('uc_vat_number', 'Error contacting VAT verification service: @error', array('@error' => $client['#error']), WATCHDOG_ERROR);
+  } else {
+    $client = $client['#return'];
     $params = array('countryCode' => $countryCode, 'vatNumber' => $vatNumber);
-    $result = $client->checkVat($params);
-    if(!$result->valid) {
-      form_set_error('panes][billing][billing_vat_number', t('VAT Number verification failed, check it\'s validity on <a href="http://ec.europa.eu/taxation_customs/vies/vieshome.do">this website</a>'));
+    $result = $client->call("checkVat", $params);
+    if ($result['#error']) {
+      if ($user->uid == 1)
+        drupal_set_message(t('Error when contacting the VAT Number verification service: @error', array('@error' => $result['#error'])));
+      watchdog('uc_vat_number', 'Error contacting VAT verification service: @error', array('@error' => $result['#error']), WATCHDOG_ERROR);
+    } else {
+      $result = $result['#return'];
+      if($result['valid'] != "true") {
+        form_set_error('panes][vat_number][vat_number', t('VAT Number verification failed, check it\'s validity on <a href="http://ec.europa.eu/taxation_customs/vies/vieshome.do">this website</a>'));
+      } else {
+        db_query("INSERT INTO {uc_vat_validation} (vat_number, fetched, response) VALUES ('%s', %d, '%s')",
+                 array("{$countryCode}{$vatNumber}", time(), serialize($result)));
+      }
     }
   }
+}
+
+
+/*******************************************************************************
+ * Implementation of uc_vat_number_condition_vat_number condition
+ *
+ * Application of VAT rule should be conditional on
+ *    billing-country == store-country
+ *    OR (billing-country == europe - store-country
+ *        AND NOT "Order has a valid VAT number")
+ ******************************************************************************/
+
+/* TODO: since we have a maintained list of all european countries, it might be easier if we
+   also provide the 'billing-country == europe' condition.
+   and if store-country is accurate, we can even do the whole condition */
+
+/**
+* Implementation of hook_ca_condition().
+*/
+function uc_vat_number_ca_condition() {
+  return array(
+    'uc_vat_number_condition_vat_number' => array(
+      '#title' => t("Order has a valid VAT number"),
+      '#category' => t('Order: Billing address'),
+      '#callback' => 'uc_vat_number_condition_vat_number',
+      '#arguments' => array(
+        'order' => array('#entity' => 'uc_order', '#title' => t('Order')),
+      ),
+    ),
+    'uc_vat_number_condition_billing_country_europe' => array(
+      '#title' => t("Order has a billing country in Europe"),
+      '#category' => t('Order: Billing address'),
+      '#callback' => 'uc_vat_number_condition_billing_country_europe',
+      '#arguments' => array(
+        'order' => array('#entity' => 'uc_order', '#title' => t('Order')),
+      ),
+    ),
+    'uc_vat_number_condition_delivery_country_europe' => array(
+      '#title' => t("Order has a shipping country in Europe"),
+      '#category' => t('Order: Shipping address'),
+      '#callback' => 'uc_vat_number_condition_delivery_country_europe',
+      '#arguments' => array(
+        'order' => array('#entity' => 'uc_order', '#title' => t('Order')),
+      ),
+    ),
+    'uc_vat_number_condition_should_apply_vat' => array(
+      '#title' => t("Order should have VAT applied"),
+      '#category' => t('Order'),
+      '#callback' => 'uc_vat_number_condition_should_apply_vat',
+      '#arguments' => array(
+        'order' => array('#entity' => 'uc_order', '#title' => t('Order')),
+      ),
+    ),
+  );
+}
+
+/**
+* Returns true if the order has a VAT number
+*/
+function uc_vat_number_condition_vat_number($order, $settings) {
+  if (empty($order->data['vat_number']))
+    return FALSE;
+  else
+    return TRUE;
+}
+
+/**
+* Settings form for uc_vat_number_condition_vat_number().
+*/
+function uc_vat_number_condition_vat_number_form($form_state, $settings = array(), $arguments = array()) {
+  return array();
+}
+
+/**
+* Returns true if the order has a billing country in the EU
+*/
+function uc_vat_number_condition_billing_country_europe($order, $settings) {
+  if (in_array($order->billing_country, uc_vat_number_european_countries()))
+    return TRUE;
+  else
+    return FALSE;
+}
+
+/**
+* Settings form for uc_vat_number_condition_billing_country_europe().
+*/
+function uc_vat_number_condition_billing_country_europe_form($form_state, $settings = array(), $arguments = array()) {
+  return array();
+}
+
+/**
+* Returns true if the order has a shipping country in the EU
+*/
+function uc_vat_number_condition_delivery_country_europe($order, $settings) {
+  if (in_array($order->delivery_country, uc_vat_number_european_countries()))
+    return TRUE;
+  else
+    return FALSE;
+}
+
+/**
+* Settings form for uc_vat_number_condition_delivery_country_europe().
+*/
+function uc_vat_number_condition_delivery_country_europe_form($form_state, $settings = array(), $arguments = array()) {
+  return array();
+}
+
+/**
+* Returns true if VAT should be applied to the order
+*/
+function uc_vat_number_condition_should_apply_vat($order, $settings) {
+  $european_countries = uc_vat_number_european_countries();
+  $store_country = variable_get('uc_store_country', '');
+  if (!in_array($order->delivery_country, $european_countries))
+    /* shipping to outside europe: no VAT */
+    return FALSE;
+  else if ($order->delivery_country == $store_country
+      || $order->billing_country == $store_country)
+    /* shipping to store's own country, or company in store's own country: no intra-community delivery */
+    return TRUE;
+  else if (in_array($order->delivery_country, $european_countries)
+           && in_array($order->billing_country, $european_countries)
+           && !empty($order->data['vat_number'])
+    )
+    /* intra-community, no VAT */
+    return FALSE;
+  else
+    /* default: VAT applicable */
+    return TRUE;
+}
+
+/**
+* Settings form for uc_vat_number_condition_should_apply_vat().
+*/
+function uc_vat_number_condition_should_apply_vat_form($form_state, $settings = array(), $arguments = array()) {
+  return array();
+}
+
+
+
+
+
+/*List of European countries (in order of the array)
+  Allemagne
+  Autriche
+  Belgique
+  Danemark
+  Espagne
+  Finlande
+  France
+  Grce
+  Irlande
+  Italie
+  Luxembourg
+  Pays-Bas
+  Portugal
+  Royaume-Uni
+  Sude
+  Chypre
+  Estonie
+  Hongrie
+  Lettonie
+  Lituanie
+  Malte
+  Pologne
+  Rpublique tchque
+  Slovaquie
+  Slovnie*/
+
+function uc_vat_number_european_countries() {
+  return array(276, 40, 56, 208, 724, 246, 250, 300, 372, 380, 442, 528, 620, 826, 752, 196, 233, 348, 428, 440, 470, 616, 203, 703, 705);
 }
