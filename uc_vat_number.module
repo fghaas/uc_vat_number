@@ -622,8 +622,9 @@ function _uc_vat_number_required() {
   if(user_is_logged_in()) {
     if($roles[2]) {
       return TRUE;
-    }
-    else {
+    } else if (!$roles) {
+      return FALSE;
+    } else {
       $roles = implode(", ", $roles);
       $q = db_query("SELECT COUNT(rid) FROM {users_roles} WHERE uid = %d AND rid IN (%s);", $user->uid, $roles);
       if(db_result($q) == 0) {
