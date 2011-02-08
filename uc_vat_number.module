@@ -23,6 +23,30 @@ function uc_vat_number_perm() {
 
 
 /**
+ * Implementation of hook_requirements()
+ */
+function uc_vat_number_requirements($phase)
+{
+  $t = get_t();
+
+  if ($phase == 'runtime') {
+    global $soapclient_LIBRARY;
+    if (variable_get('uc_store_vat_number_soap', true) == true
+        && $soapclient_LIBRARY != 'nuSOAP') {
+      /* EU VAT service only plays nice with nuSOAP, PHP SOAP module gives unreliable results... */
+      $requirements['uc_vat_number'] = array(
+        'severity' => REQUIREMENT_ERROR,
+        'title' => $t('Ubercart VAT Number'),
+        'value' => $t('VAT validation not functional'),
+        'description' => $t('VAT Number validation requires the SOAP Client module to use the <b>nuSOAP</b> library, you can configure this <a href="!url">here</a>.', array('!url' => url('admin/settings/soapclient/config'))),
+      );
+    }
+  }
+
+  return $requirements;
+}
+
+/**
  * Implementation of hook_form_alter()
  */
 function uc_vat_number_form_alter(&$form, $form_state, $form_id) {
@@ -40,7 +64,7 @@ function uc_vat_number_form_alter(&$form, $form_state, $form_id) {
     );
     $form['uc_store_vat_number_soap'] = array(
         '#type' => 'checkbox',
-        '#title' => t('Check the validity on the customer VAT Number via <a href="http://ec.europa.eu/taxation_customs/vies/lang.do?fromWhichPage=vieshome">Europa VAT Number validation webservice</a>'),
+        '#title' => t('Check the validity on the customer VAT Number via <a href="http://ec.europa.eu/taxation_customs/vies/vieshome.do">Europa VAT Number validation webservice</a>'),
         '#weight' => 2,
         '#default_value' => variable_get('uc_store_vat_number_soap', true),
     );
@@ -153,6 +177,8 @@ function uc_vat_number_checkout_pane_vat($op, &$arg1, $arg2)
       drupal_add_js('var european_countries = [' . implode(',', uc_vat_number_european_countries()) . '];', 'inline');
       // force VAT Number refresh
       drupal_add_js('$(document).ready(function() { updateVatField(); });', 'inline');
+      // override uc_payment's serializeOrder with our own to insert the VAT number
+      drupal_add_js('var __serializeOrder = serializeOrder; var serializeOrder = uc_vat_number__serializeOrder;', 'inline');
 
       $content['vat_number'] = array(
         '#type' => 'textfield',
@@ -291,10 +317,14 @@ function uc_vat_number_checkout_validate($form, $form_state) {
       return;
 
   if(variable_get('uc_store_vat_number_soap', true) == true) {
-    uc_vat_number_validate_vat($form_state['values']['panes']['vat_number']['vat_number']);
+    $err = uc_vat_number_validate_vat($form_state['values']['panes']['vat_number']['vat_number']);
+    if ($err) {
+      form_set_error('panes][vat_number][vat_number', $err);
+    }
   }
 }
 
+/* Check a VAT number. Return error message on error, FALSE on success. */
 
 function uc_vat_number_validate_vat($vat_number) {
   global $user;
@@ -304,39 +334,44 @@ function uc_vat_number_validate_vat($vat_number) {
   $vatNumber = strtoupper(substr($vat_number, 2));
 
   if(!preg_match('/^[A-Z]{2}$/', $countryCode) or !preg_match('/^[0-9A-Z+*]+$/', $vatNumber)) {
-    form_set_error('panes][vat_number][vat_number', t('Your VAT Number syntax is not correct. You should have something like: BE 0123.456.789'));
-    return;
+    return t('Your VAT Number syntax is not correct. You should have something like: BE 0123.456.789');
   }
 
   if (db_result(db_query(
-    "SELECT vat_validation_id FROM {uc_vat_validation} WHERE vat_number = '%s' AND fetched > UNIX_TIMESTAMP(NOW()) - 86400",
-    array("{$countryCode}{$vatNumber}")
+    "SELECT vat_validation_id FROM {uc_vat_validation} WHERE vat_number = '%s' AND fetched > %d",
+    array("{$countryCode}{$vatNumber}", time() - 86400)
   ))) {
-    /* number is in the cache, which means it was valid (we only store valid numbers).
-       no need to check, can't set error, just return */
-    return;
+    /* VAT number is in the cache, which means it was valid (we only store valid numbers) */
+    return FALSE;
   }
 
-  $client = soapclient_init_client("http://ec.europa.eu/taxation_customs/vies/services/checkVatService.wsdl", TRUE);
+  $client = soapclient_init_client("http://ec.europa.eu/taxation_customs/vies/checkVatService.wsdl", TRUE);
   if ($client['#error']) {
-    if ($user->uid == 1)
-      drupal_set_message(t('Error when contacting the VAT Number verification service: @error', array('@error' => $client['#error'])));
     watchdog('uc_vat_number', 'Error contacting VAT verification service: @error', array('@error' => $client['#error']), WATCHDOG_ERROR);
+    if ($user->uid == 1)
+      return t('Error when contacting the VAT Number verification service: @error', array('@error' => $client['#error']));
+    else
+      return t('Cannot contact VAT Number verification service');
   } else {
     $client = $client['#return'];
     $params = array('countryCode' => $countryCode, 'vatNumber' => $vatNumber);
     $result = $client->call("checkVat", $params);
     if ($result['#error']) {
-      if ($user->uid == 1)
-        drupal_set_message(t('Error when contacting the VAT Number verification service: @error', array('@error' => $result['#error'])));
       watchdog('uc_vat_number', 'Error contacting VAT verification service: @error', array('@error' => $result['#error']), WATCHDOG_ERROR);
+      if ($user->uid == 1)
+        return t('Error when contacting the VAT Number verification service: @error', array('@error' => $result['#error']));
+      else
+        return t('Error when contacting the VAT Number verification service');
     } else {
-      $result = $result['#return'];
+      $result = (array)$result['#return'];
       if($result['valid'] != "true") {
-        form_set_error('panes][vat_number][vat_number', t('VAT Number verification failed, check it\'s validity on <a href="http://ec.europa.eu/taxation_customs/vies/vieshome.do">this website</a>'));
+        return t('VAT Number verification failed, check it\'s validity on <a href="http://ec.europa.eu/taxation_customs/vies/vieshome.do">this website</a>');
       } else {
+        db_query("DELETE FROM {uc_vat_validation} WHERE vat_number = '%s'",
+                 array("{$countryCode}{$vatNumber}"));
         db_query("INSERT INTO {uc_vat_validation} (vat_number, fetched, response) VALUES ('%s', %d, '%s')",
                  array("{$countryCode}{$vatNumber}", time(), serialize($result)));
+        return FALSE;
       }
     }
   }
@@ -389,6 +424,15 @@ function uc_vat_number_ca_condition() {
       '#title' => t("Order should have VAT applied"),
       '#category' => t('Order'),
       '#callback' => 'uc_vat_number_condition_should_apply_vat',
+      '#arguments' => array(
+        'order' => array('#entity' => 'uc_order', '#title' => t('Order')),
+      ),
+    ),
+    'uc_vat_number_condition_billing_company_has_value' => array(
+      '#title' => t("Order billing company has a value"),
+      '#category' => t('Order: Billing address'),
+      '#description' => t('Returns TRUE if the billing company has a value.'),
+      '#callback' => 'uc_vat_number_condition_billing_company_has_value',
       '#arguments' => array(
         'order' => array('#entity' => 'uc_order', '#title' => t('Order')),
       ),
@@ -472,43 +516,53 @@ function uc_vat_number_condition_should_apply_vat($order, $settings) {
 }
 
 /**
+* Returns true if the billing company has a value
+*/
+function uc_vat_number_condition_billing_company_has_value($order, $settings) {
+  if (!empty($order->billing_company))
+    return TRUE;
+  else
+    return FALSE;
+}
+
+/**
 * Settings form for uc_vat_number_condition_should_apply_vat().
 */
 function uc_vat_number_condition_should_apply_vat_form($form_state, $settings = array(), $arguments = array()) {
   return array();
 }
 
-
-
-
-
-/*List of European countries (in order of the array)
-  Allemagne
-  Autriche
-  Belgique
-  Danemark
-  Espagne
-  Finlande
-  France
-  Grce
-  Irlande
-  Italie
-  Luxembourg
-  Pays-Bas
-  Portugal
-  Royaume-Uni
-  Sude
-  Chypre
-  Estonie
-  Hongrie
-  Lettonie
-  Lituanie
-  Malte
-  Pologne
-  Rpublique tchque
-  Slovaquie
-  Slovnie*/
+/*
+  List of European countries (in order of the array)
+    40      Austria         AT
+    56      Belgium         BE
+    100     Bulgaria        BG
+    196     Cyprus          CY
+    203     Czech Republic  CZ
+    208     Denmark         DK
+    233     Estonia         EE
+    246     Finland         FI
+    250     France          FR
+    276     Germany         DE
+    300     Greece          GR
+    348     Hungary         HU
+    372     Ireland         IE
+    380     Italy           IT
+    428     Latvia          LV
+    440     Lithuania       LT
+    442     Luxembourg      LU
+    470     Malta           MT
+    528     Netherlands     NL
+    616     Poland          PL
+    620     Portugal        PT
+    642     Romania         RO
+    703     Slovakia        SK
+    705     Slovenia        SI
+    724     Spain           ES
+    752     Sweden          SE
+    826     United Kingdom  GB
+*/
 
 function uc_vat_number_european_countries() {
-  return array(276, 40, 56, 208, 724, 246, 250, 300, 372, 380, 442, 528, 620, 826, 752, 196, 233, 348, 428, 440, 470, 616, 203, 703, 705);
+  return array(40, 56, 100, 196, 203, 208, 233, 246, 250, 276, 300, 348, 372, 380, 428, 440, 442, 470, 528, 616, 620, 642, 703, 705, 724, 752, 826);
 }

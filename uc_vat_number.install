@@ -27,6 +27,7 @@ function uc_vat_number_schema() {
       'response' => array('type' => 'text', 'not null' => TRUE),
     ),
     'primary key' => array('vat_validation_id'),
+    'unique keys' => array('vat_number' => array('vat_number')),
   );
   return $schema;
 }
@@ -58,5 +59,12 @@ function uc_vat_number_update_2() {
 
   $ret = array();
   db_create_table($ret, 'uc_vat_validation', $schema['uc_vat_validation']);
+  return $ret;
+}
+
+function uc_vat_number_update_5() {
+  $ret = array();
+  $ret[] = update_sql("TRUNCATE TABLE {uc_vat_validation}");
+  db_add_unique_key($ret, 'uc_vat_validation', 'vat_number', array('vat_number'));
   return $ret;
 }
