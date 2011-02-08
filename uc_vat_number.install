@@ -36,7 +36,8 @@ function uc_vat_number_schema() {
  * Implementation of hook_uninstall().
  **/
 function uc_vat_number_uninstall() {
-  db_query("DROP TABLE IF EXISTS {uc_vat_numbers}");
+  db_query("DROP TABLE IF EXISTS {uc_vat_number}");
+  db_query("DROP TABLE IF EXISTS {uc_vat_validation}");
   variable_del('uc_store_vat_number');
   variable_del('uc_pane_vat_number_enabled');
   variable_del('uc_pane_vat_number_weight');
