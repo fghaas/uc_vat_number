@@ -232,7 +232,7 @@ function uc_vat_number_checkout_pane_vat($op, &$arg1, $arg2)
         '#size' => 32,
         '#maxlength' => 32,
         '#weight' => 1,
-        '#required' => __uc_vat_number_required() ? TRUE : FALSE,
+        '#required' => _uc_vat_number_required() ? TRUE : FALSE,
         '#default_value' => $order->data['vat_number'],
         '#autocomplete_path' => 'uc_vat_number/vat_autocomplete',
       );
