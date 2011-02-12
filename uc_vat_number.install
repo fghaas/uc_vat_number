@@ -1,15 +1,21 @@
 <?php
 // $Id$
+
+/**
+ * @file
+ * Update and install functions for VAT Number.
+ */
+
 /**
  * Implementation of hook_install().
- **/
+ */
 function uc_vat_number_install() {
   drupal_install_schema('uc_vat_number');
 }
 
 /**
  * Implementation of hook_schema().
- **/
+ */
 function uc_vat_number_schema() {
   $schema['uc_vat_number'] = array(
     'fields' => array(
@@ -34,7 +40,7 @@ function uc_vat_number_schema() {
 
 /**
  * Implementation of hook_uninstall().
- **/
+ */
 function uc_vat_number_uninstall() {
   db_query("DROP TABLE IF EXISTS {uc_vat_number}");
   db_query("DROP TABLE IF EXISTS {uc_vat_validation}");
@@ -47,8 +53,8 @@ function uc_vat_number_uninstall() {
 
 
 /**
- * Update functions
- **/
+ * Implementation of hook_update_N().
+ */
 
 function uc_vat_number_update_2() {
   $schema['uc_vat_validation'] = array(
@@ -77,60 +83,60 @@ function uc_vat_number_update_6200() {
   $on_roles = user_roles(FALSE, 'Have to fill VAT number');
   $off_roles = array_diff(user_roles(FALSE), $on_roles);
   $ret = array();
-    
-  if(count($on_roles)) {
-    drupal_set_message('Version 2 of Ubercart VAT Number significantly changes the way the module handles role permissions. Please refer to <a href="http://drupal.org/node/1052086">the project page</a> for further details.', 'warning');
-    
+
+  if (count($on_roles)) {
+    drupal_set_message(t('Version 2 of Ubercart VAT Number significantly changes the way the module handles role permissions. Please refer to <a href="http://drupal.org/node/1052086">the project page</a> for further details.'), 'warning');
+
     // Removes wrong permission from roles that have it
     $permissions = array();
-    foreach($on_roles as $rid => $role) {
+    foreach ($on_roles as $rid => $role) {
       $q = db_query("SELECT perm FROM {permission} WHERE rid = %d;", $rid);
       $obj = db_fetch_object($q);
       $perm = explode(", ", $obj->perm);
       // If wrong permission is the only permission, permissions for this role won't be regenerated
-      if(count($perm) > 1) {
-        foreach($perm as $key => $val) {
-          if($val == 'Have to fill VAT number') {
+      if (count($perm) > 1) {
+        foreach ($perm as $key => $val) {
+          if ($val == 'Have to fill VAT number') {
             unset($perm[$key]);
           }
         }
         $permissions[$rid] = implode(", ", $perm);
-       }
+      }
     }
-        
+
     // Restores permissions for remaining roles
-    foreach($off_roles as $rid => $role) {
+    foreach ($off_roles as $rid => $role) {
       $q = db_query("SELECT perm FROM {permission} WHERE rid = %d;", $rid);
       $obj = db_fetch_object($q);
-      if($obj->perm != '') {
+      if ($obj->perm != '') {
         $permissions[$rid] = $obj->perm;
       }
     }
-    
+
     ksort($permissions);
-    
+
     // Empties permission table
     $ret[] = update_sql("TRUNCATE {permission};");
-    
+
     // Assigns updated roles
-    if(count($permissions)) {
+    if (count($permissions)) {
       $values = array();
-      foreach($permissions as $rid => $perm) {
+      foreach ($permissions as $rid => $perm) {
         $values[] = "('$rid', '$perm')";
       }
       $values = implode(", ", $values);
       $ret[] = update_sql("INSERT INTO {permission} (rid, perm) VALUES $values;");
     }
-    
+
     $uc_vat_number_roles = array();
-    foreach($on_roles as $rid => $role) {
+    foreach ($on_roles as $rid => $role) {
       $uc_vat_number_roles[$rid] = $rid;
     }
-    
-    foreach($off_roles as $rid => $role) {
+
+    foreach ($off_roles as $rid => $role) {
       $uc_vat_number_roles[$rid] = 0;
     }
-    
+
     variable_set('uc_vat_number_roles', $uc_vat_number_roles);
   }
 
