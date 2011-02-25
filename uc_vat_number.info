@@ -1,4 +1,3 @@
-; $Id$
 name = VAT Number
 description = Ask for and validate customer's VAT number.
 dependencies[] = uc_cart
