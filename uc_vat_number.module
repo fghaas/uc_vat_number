@@ -64,29 +64,6 @@ function uc_vat_number_settings() {
 }
 
 /**
- * Implementation of hook_requirements().
- */
-function uc_vat_number_requirements($phase) {
-  $t = get_t();
-
-  if ($phase == 'runtime') {
-    global $soapclient_LIBRARY;
-    if (variable_get('uc_store_vat_number_soap', TRUE) == TRUE
-      && $soapclient_LIBRARY != 'nuSOAP') {
-      /* EU VAT service only plays nice with nuSOAP, PHP SOAP module gives unreliable results... */
-      $requirements['uc_vat_number'] = array(
-        'severity' => REQUIREMENT_ERROR,
-        'title' => $t('Ubercart VAT Number'),
-        'value' => $t('VAT validation not functional'),
-        'description' => $t('VAT Number validation requires the SOAP Client module to use the <b>nuSOAP</b> library. <a href="!url">Configure SOAP Client</a>.', array('!url' => url('admin/settings/soapclient/config'))),
-      );
-    }
-  }
-
-  return $requirements;
-}
-
-/**
  * Implementation of hook_form_alter().
  */
 function uc_vat_number_form_alter(&$form, $form_state, $form_id) {
