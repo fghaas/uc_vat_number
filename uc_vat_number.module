@@ -592,10 +592,7 @@ function _uc_vat_number_required() {
       return FALSE;
     }
     else {
-      // If not all authenticated users are required, this checks if the users has one of the required roles
-      // This is not an approved way to design a query in Drupal, but since there is no user input it's perfectly safe
-      $roles = implode(", ", $roles);
-      $q = db_query("SELECT COUNT(rid) FROM {users_roles} WHERE uid = %d AND rid IN (%s);", $user->uid, $roles);
+      $q = db_query("SELECT COUNT(rid) FROM {users_roles} WHERE uid = %d AND rid IN (" . db_placeholders($roles) . ");", $user->uid, $roles);
       if (db_result($q) <> 0) {
         return TRUE;
       }
