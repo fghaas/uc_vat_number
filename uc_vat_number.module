@@ -7,6 +7,9 @@
  *
  */
 
+define('UC_VAT_NUMBER_SOAP_WSDL_URL_DEFAULT', 'http://ec.europa.eu/taxation_customs/vies/checkVatService.wsdl');
+define('UC_VAT_NUMBER_MANUAL_URL_DEFAULT', 'http://ec.europa.eu/taxation_customs/vies/vieshome.do');
+
 /**
  * Hook Functions
  */
@@ -45,11 +48,32 @@ function uc_vat_number_menu() {
  * Module settings
  */
 function uc_vat_number_settings() {
+  $form['general'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('General settings'),
+    '#collapsed' => FALSE,
+    '#collapsible' => TRUE,
+  );
+
+  $form['general']['uc_vat_number_soap_wsdl_url'] = array(
+    '#type' => 'textfield',
+    '#title' => t('SOAP server endpoint URL'),
+    '#default_value' => variable_get('uc_vat_number_soap_wsdl_url', UC_VAT_NUMBER_SOAP_WSDL_URL_DEFAULT),
+    '#description' => t('The SOAP WSDL URL of the VIES VAT validation service.'),
+  );
+
+  $form['general']['uc_vat_number_manual_url'] = array(
+    '#type' => 'textfield',
+    '#title' => t('URL for manual VAT ID verification'),
+    '#default_value' => variable_get('uc_vat_number_manual_url', UC_VAT_NUMBER_MANUAL_URL_DEFAULT),
+    '#description' => t('The URL of a web site where you are able to verify VAT IDs manually. Will be displayed if automatic verification fails.'),
+  );
+
   $form['vat_roles'] = array(
     '#type' => 'fieldset',
     '#title' => t('Require VAT number by role'),
     '#collapsed' => FALSE,
-    '#collapsible' => FALSE,
+    '#collapsible' => TRUE,
   );
 
   $form['vat_roles']['uc_vat_number_roles'] = array(
@@ -81,7 +105,7 @@ function uc_vat_number_form_alter(&$form, $form_state, $form_id) {
     );
     $form['uc_store_vat_number_soap'] = array(
         '#type' => 'checkbox',
-        '#title' => t('Check the validity on the customer VAT Number via <a href="http://ec.europa.eu/taxation_customs/vies/vieshome.do">Europa VAT Number validation webservice</a>.'),
+        '#title' => t('Check the validity on the customer VAT Number via Europa VAT Number validation webservice.'),
         '#weight' => 2,
         '#default_value' => variable_get('uc_store_vat_number_soap', TRUE),
     );
@@ -338,7 +362,11 @@ function uc_vat_number_validate_vat($vat_number) {
     return FALSE;
   }
 
-  $client = soapclient_init_client("http://ec.europa.eu/taxation_customs/vies/checkVatService.wsdl", TRUE);
+  $client = soapclient_init_client(
+              variable_get('uc_vat_number_soap_wsdl_url',
+                           UC_VAT_NUMBER_SOAP_WSDL_URL_DEFAULT),
+              TRUE
+            );
   if ($client['#error']) {
     watchdog('uc_vat_number', 'Error contacting VAT verification service: @error.', array('@error' => $client['#error']), WATCHDOG_ERROR);
     if ($user->uid == 1)
@@ -360,7 +388,11 @@ function uc_vat_number_validate_vat($vat_number) {
     else {
       $result = (array)$result['#return'];
       if ($result['valid'] != "true") {
-        return t('VAT Number verification failed. <a href="http://ec.europa.eu/taxation_customs/vies/vieshome.do">Check its validity</a>.');
+        return t('VAT Number verification failed.') . ' ' .
+               l(t('Check its validity manually.'),
+                 variable_get('uc_vat_number_manual_url',
+                              UC_VAT_NUMBER_MANUAL_URL_DEFAULT)
+               );
       }
       else {
         db_query("DELETE FROM {uc_vat_validation} WHERE vat_number = '%s'",
