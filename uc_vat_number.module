@@ -9,6 +9,7 @@
 
 define('UC_VAT_NUMBER_SOAP_WSDL_URL_DEFAULT', 'http://ec.europa.eu/taxation_customs/vies/checkVatService.wsdl');
 define('UC_VAT_NUMBER_MANUAL_URL_DEFAULT', 'http://ec.europa.eu/taxation_customs/vies/vieshome.do');
+define('UC_VAT_NUMBER_CHECK_INTERVAL_DEFAULT', 0);
 
 /**
  * Hook Functions
@@ -67,6 +68,19 @@ function uc_vat_number_settings() {
     '#title' => t('URL for manual VAT ID verification'),
     '#default_value' => variable_get('uc_vat_number_manual_url', UC_VAT_NUMBER_MANUAL_URL_DEFAULT),
     '#description' => t('The URL of a web site where you are able to verify VAT IDs manually. Will be displayed if automatic verification fails.'),
+  );
+
+  $form['general']['uc_vat_number_check_interval'] = array(
+    '#type' => 'select',
+    '#title' => t('Check availability of services'),
+    '#default_value' => variable_get('uc_vat_number_check_interval', UC_VAT_NUMBER_CHECK_INTERVAL_DEFAULT),
+    '#description' => t('Periodically check the availability of VAT number validation services.'),
+    '#options' => array(
+      0 => 'Never',
+      3600 => 'Hourly',
+      86400 => 'Daily',
+      604800 => 'Weekly',
+    ),
   );
 
   $form['vat_roles'] = array(
@@ -315,6 +329,66 @@ function uc_vat_number_token_list($type = 'all') {
     $tokens['order']['order-vat-number'] = t('The VAT number of the customer.');
   }
   return $tokens;
+}
+
+/**
+ * Implementation of hook_cron()
+ *
+ * Periodically check the availability of the VAT validation services.
+ */
+function uc_vat_number_cron() {
+  $check_interval = variable_get('uc_vat_number_check_interval', UC_VAT_NUMBER_CHECK_INTERVAL_DEFAULT);
+
+  if ($check_interval > 0) {
+    /* uc_vat_number_last_check_soap is the timestamp of the most
+       recent successful check via the SOAP service (in other words,
+       the last time the SOAP service returned without error). */
+    $last_check_soap = variable_get('uc_vat_number_last_check_soap', 0);
+
+    if (time() > ($last_check_soap + $check_interval)) {
+      // Perform a lookup of our own VAT ID to check functionality of the SOAP service
+      $vat_number = variable_get('uc_store_vat_number', '');
+      if ($vat_number == '') {
+        watchdog('uc_vat_number',
+                 t('Unable to check VAT number validation service: no store VAT number configured'),
+                 NULL,
+                 WATCHDOG_INFO);
+      }
+      elseif (uc_vat_number_validate_vat($vat_number)) {
+        watchdog('uc_vat_number',
+                 t('VAT number validation service check failed via SOAP'),
+                 NULL,
+                 WATCHDOG_WARNING);
+      } else {
+        watchdog('uc_vat_number',
+                 t('VAT number validation service check succeeded via SOAP'),
+                 NULL,
+                 WATCHDOG_DEBUG);
+        variable_set('uc_vat_number_last_check_soap', time());
+      }
+    }
+
+    /* uc_vat_number_last_check_manual is the timestamp of the most
+       recent successful check via the web page URL (in other words,
+       the URL had a successful HTTP status). */
+    $last_check_manual = variable_get('uc_vat_number_last_check_manual', 0);
+    if (time() > ($last_check_manual + $check_interval)) {
+      // Try to fetch the page via HTTP
+      $response = drupal_http_request(variable_get(uc_vat_number_manual_url, UC_VAT_NUMBER_MANUAL_URL_DEFAULT));
+      if (empty($response->error)) {
+        watchdog('uc_vat_number',
+                 t('Manual VAT number validation service is available and responsive via HTTP'),
+                 NULL,
+                 WATCHDOG_DEBUG);
+        variable_set('uc_vat_number_last_check_manual', time());
+      } else {
+        watchdog('uc_vat_number',
+                 t('Manual VAT number validation service is unavailable via HTTP'),
+                 NULL,
+                 WATCHDOG_WARNING);
+      }
+    }
+  }
 }
 
 /**
